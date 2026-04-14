@@ -15,11 +15,14 @@
 static int	put_err(char *msg)
 {
 	int	len;
+	int	w;
 
 	len = 0;
 	while (msg[len])
 		++len;
-	write(2, msg, len);
+	w = write(2, msg, len);
+	if (w < 0)
+		return (1);
 	return (1);
 }
 
@@ -68,7 +71,8 @@ int	setup_graphics(t_data *data)
 	data->addr = mlx_get_data_addr(data->img, &data->bits_per_pixel,
 			&data->line_length, &data->endian);
 	if (!data->addr)
-		return (destroy_data(data), put_err("Error: mlx_get_data_addr failed\n"));
+		return (destroy_data(data),
+			put_err("Error: mlx_get_data_addr failed\n"));
 	return (0);
 }
 
