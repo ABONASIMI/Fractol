@@ -67,11 +67,9 @@ make bonus
 
 Source files:
 - `main.c`: initialization, graphics setup, hooks, main loop
-- `parse.c`: strict argument parsing and usage handling
-- `events.c`: keyboard/mouse controls and clean close
-- `render.c`: pixel rendering
-- `fractal_math.c`: fractal iteration and palette/color logic
-- `utils.c`: strict numeric parser for Julia parameters
+- `events.c`: keyboard/mouse controls and default-view reset
+- `render.c`: fractal iteration, palette generation, and pixel rendering
+- `utils.c`: strict argument parsing and numeric parser for Julia
 - `fractol.h`: shared declarations
 - `Makefile`: build rules (`all`, `bonus`, `clean`, `fclean`, `re`)
 

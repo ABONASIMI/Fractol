@@ -12,6 +12,32 @@
 
 #include "fractol.h"
 
+static int	streq(char *a, char *b)
+{
+	while (*a && *b && *a == *b)
+	{
+		++a;
+		++b;
+	}
+	return (*a == '\0' && *b == '\0');
+}
+
+static int	usage(void)
+{
+	static char	msg[] = "Usage:\n"
+		"  ./fractol mandelbrot\n"
+		"  ./fractol julia\n"
+		"  ./fractol julia <real> <imag>\n"
+		"  ./fractol burningship\n"
+		"Available sets: mandelbrot | julia | burningship\n";
+	int			w;
+
+	w = write(1, msg, sizeof(msg) - 1);
+	if (w < 0)
+		return (0);
+	return (0);
+}
+
 static void	parse_digits(char **s, double *res, double *frac, int frac_mode)
 {
 	while (**s >= '0' && **s <= '9')
@@ -53,5 +79,24 @@ int	ft_atof_strict(char *s, double *out)
 	if (*s || !started)
 		return (0);
 	*out = res * sign;
+	return (1);
+}
+
+int	parse_args(int ac, char **av, t_data *data)
+{
+	if (ac == 2 && streq(av[1], "mandelbrot"))
+		data->set = MANDELBROT;
+	else if (ac == 2 && (streq(av[1], "burningship")
+			|| streq(av[1], "burning_ship")))
+		data->set = BURNING_SHIP;
+	else if (ac == 2 && streq(av[1], "julia"))
+		data->set = JULIA;
+	else if (ac == 4 && streq(av[1], "julia")
+		&& ft_atof_strict(av[2], &data->julia_x)
+		&& ft_atof_strict(av[3], &data->julia_y))
+		data->set = JULIA;
+	else
+		return (usage());
+	set_default_view(data);
 	return (1);
 }

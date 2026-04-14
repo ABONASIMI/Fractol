@@ -1,6 +1,6 @@
 NAME = fractol
 
-SRCS = main.c parse.c events.c render.c fractal_math.c utils.c
+SRCS = main.c events.c render.c utils.c
 OBJS = $(SRCS:.c=.o)
 
 CC = cc
@@ -25,7 +25,7 @@ bonus: $(NAME)
 
 clean:
 	$(MAKE) -C $(MLX_PATH) clean
-	rm -f $(OBJS)
+	rm -f $(OBJS) *.o
 
 fclean: clean
 	rm -f $(NAME)

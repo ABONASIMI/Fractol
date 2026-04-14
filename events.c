@@ -19,6 +19,22 @@ int	close_hook(t_data *data)
 	return (0);
 }
 
+void	set_default_view(t_data *data)
+{
+	data->zoom = 1.0;
+	data->color_shift = 0;
+	if (data->set == JULIA)
+	{
+		data->shift_x = 0.0;
+		data->shift_y = 0.0;
+		return ;
+	}
+	data->shift_x = -0.5;
+	data->shift_y = 0.0;
+	if (data->set == BURNING_SHIP)
+		data->shift_y = -0.5;
+}
+
 static void	zoom_at_point(t_data *data, int x, int y, double factor)
 {
 	double	scale_x;
