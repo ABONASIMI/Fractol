@@ -1706,3 +1706,211 @@ Flow اصلی برنامه:
 2. یکی از توابع MLX fail (مثلاً `mlx_new_image`).
 3. `setup_graphics` cleanup می‌کند + error چاپ می‌کند + `1` می‌دهد.
 4. `main` با `return 1` خارج می‌شود.
+
+---
+
+## 44) پوشش 100٪ همه توابع (20/20) — line-by-line compact
+
+این بخش برای این است که دقیقاً بگویی:
+1. همه توابع پروژه پوشش داده شده‌اند.
+2. هر تابع خط‌به‌خط توضیح دارد (compact و دفاع‌پذیر).
+
+## 44.1) `main.c`
+
+### 1) `put_err`
+1. `len = 0` مقدار اولیه.
+2. `while (msg[len])` طول message را می‌شمارد.
+3. `write(2, msg, len)` روی `stderr` چاپ می‌کند.
+4. `if (w < 0)` خطای write را چک می‌کند.
+5. در هر حالت `1` برمی‌گرداند (error code).
+
+### 2) `init_data`
+1. pointerها `NULL`.
+2. metadata تصویر (`bpp`, `line_length`, `endian`) صفر.
+3. camera default (`zoom=1`, `shift_x/y=0`).
+4. Julia default (`-0.744`, `0.148`).
+5. `color_shift=0`.
+6. `set=MANDELBROT`.
+
+### 3) `destroy_data`
+1. اگر `img && mlx` -> `mlx_destroy_image`.
+2. اگر `win && mlx` -> `mlx_destroy_window`.
+3. اگر `mlx`:
+   - `mlx_destroy_display`
+   - `free(mlx)`
+
+### 4) `setup_graphics`
+1. `mlx_init` context.
+2. اگر fail -> `put_err`.
+3. `mlx_new_window`.
+4. اگر fail -> `destroy_data` + `put_err`.
+5. `mlx_new_image`.
+6. اگر fail -> `destroy_data` + `put_err`.
+7. `mlx_get_data_addr` برای buffer + metadata.
+8. اگر fail -> `destroy_data` + `put_err`.
+9. success -> `return 0`.
+
+### 5) `main`
+1. `t_data data` ساخته می‌شود.
+2. `init_data`.
+3. `parse_args` fail -> `return 1`.
+4. `setup_graphics` fail -> `return 1`.
+5. `render` اولیه.
+6. hook کیبورد.
+7. hook ماوس.
+8. hook close (`event 17`).
+9. `mlx_loop`.
+10. `return 0` (بعد از خروج loop).
+
+## 44.2) `events.c`
+
+### 6) `close_hook`
+1. `destroy_data`.
+2. `exit(0)`.
+3. `return 0` عملاً unreachable.
+
+### 7) `set_default_view`
+1. `zoom=1`, `color_shift=0`.
+2. اگر `JULIA`:
+   - `shift_x=0`
+   - `shift_y=0`
+   - `return`
+3. در غیر Julia:
+   - `shift_x=-0.5`
+   - `shift_y=0`
+4. اگر `BURNING_SHIP` -> `shift_y=-0.5`.
+
+### 8) `zoom_at_point`
+1. scale فعلی (`scale_x/scale_y`) محاسبه می‌شود.
+2. نقطه مختلط زیر mouse قبل zoom ذخیره می‌شود (`mouse_re/im`).
+3. `zoom *= factor`.
+4. scale جدید محاسبه می‌شود.
+5. `shift_x/shift_y` تنظیم می‌شود تا anchor زیر mouse ثابت بماند.
+
+### 9) `mouse_hook`
+1. اگر `(x,y)` بیرون window -> `return 0`.
+2. `button==4` -> zoom in.
+3. `button==5` -> zoom out.
+4. سایر buttonها -> ignore.
+5. `render` و `return 0`.
+
+### 10) `key_hook`
+1. `ESC` -> `close_hook`.
+2. `Left` -> `shift_x -= MOVE_STEP/zoom`.
+3. `Right` -> `shift_x += MOVE_STEP/zoom`.
+4. `Up` -> `shift_y -= MOVE_STEP/zoom`.
+5. `Down` -> `shift_y += MOVE_STEP/zoom`.
+6. `C/c` -> `color_shift += 2`.
+7. `V/v` -> `color_shift -= 2`.
+8. `R/r` -> `set_default_view`.
+9. کلید ناشناخته -> `return 0`.
+10. در مسیر معتبر -> `render`, `return 0`.
+
+## 44.3) `utils.c`
+
+### 11) `streq`
+1. تا وقتی هر دو رشته حرف دارند و برابرند جلو می‌رود.
+2. در پایان اگر هر دو همزمان `'\0'` باشند -> برابر (`1`).
+3. وگرنه -> `0`.
+
+### 12) `usage`
+1. پیام ثابت usage تعریف شده.
+2. `write(1, msg, sizeof(msg)-1)` چاپ می‌کند.
+3. حتی در خطای write هم خروجی parse-fail (`0`) حفظ می‌شود.
+
+### 13) `parse_digits`
+1. تا وقتی char فعلی digit است loop.
+2. در `frac_mode=0`:
+   - `res = res * 10 + digit`
+3. در `frac_mode=1`:
+   - `res += digit * frac`
+   - `frac *= 0.1`
+4. هر دور pointer رشته جلو می‌رود.
+
+### 14) `ft_atof_strict`
+1. guard برای `NULL`/empty.
+2. init متغیرها (`res`, `frac`, `sign`, `started`).
+3. sign (`+/-`) parse می‌شود.
+4. digit قبل dot اگر باشد -> `started=1`.
+5. `parse_digits(..., 0)` بخش صحیح.
+6. اگر dot باشد از آن عبور می‌کند.
+7. digit بعد dot اگر باشد -> `started=1`.
+8. `parse_digits(..., 1)` بخش اعشاری.
+9. اگر کاراکتر اضافه مانده یا هیچ digit نبود -> fail.
+10. `*out = res * sign`.
+11. success -> `return 1`.
+
+### 15) `parse_args`
+1. حالت `mandelbrot` با `ac==2`.
+2. حالت `burningship` یا `burning_ship` با `ac==2`.
+3. حالت `julia` بدون پارامتر با `ac==2`.
+4. حالت `julia x y` با `ac==4` + دو parse موفق.
+5. اگر هیچکدام نبود -> `usage()` و fail.
+6. در مسیر معتبر -> `set_default_view`.
+7. success -> `return 1`.
+
+## 44.4) `render.c`
+
+### 16) `get_color`
+1. اگر `iter == MAX_ITER` -> سیاه.
+2. `t = iter / MAX_ITER`.
+3. `r/g/b` با فرمول smooth polynomial.
+4. packing رنگ با `(r << 16 | g << 8 | b)`.
+
+### 17) `get_palette_color`
+1. `static palette` و `ready`.
+2. اگر `ready==0`:
+   - از `0..MAX_ITER` رنگ‌ها با `get_color` ساخته می‌شوند.
+   - `ready=1`.
+3. اگر `iter==MAX_ITER` -> رنگ داخل set.
+4. index = `(iter + shift) % MAX_ITER`.
+5. اگر index منفی شد -> `+MAX_ITER`.
+6. رنگ palette برگردانده می‌شود.
+
+### 18) `init_iter`
+1. اگر set = `JULIA`:
+   - `z = pixel` (`z[0]=cx`, `z[1]=cy`)
+   - `c = julia parameter` (با overwrite روی `cx/cy`)
+2. در غیر این‌صورت (`MANDELBROT`, `BURNING_SHIP`):
+   - `z = 0`
+   - `c = pixel` همان قبلی.
+
+### 19) `get_point_iter`
+1. `init_iter`.
+2. `i=0`.
+3. while تا وقتی:
+   - `i < MAX_ITER`
+   - `|z|^2 < 4`
+4. اگر `BURNING_SHIP`:
+   - قبل فرمول، `z` قدرمطلق می‌شود.
+5. فرمول iteration:
+   - `tmp = x^2 - y^2 + cx`
+   - `y = 2xy + cy`
+   - `x = tmp`
+6. `i++`.
+7. `return i`.
+
+### 20) `render`
+1. scaleها (`sx`, `sy`) از zoom حساب می‌شوند.
+2. `start_x/start_y` برای گوشه بالا-چپ plane.
+3. loop روی `y` از `0..HEIGHT-1`.
+4. pointer سطر با `addr + y * line_length`.
+5. loop روی `x` از `0..WIDTH-1`.
+6. map pixel -> `cx/cy`.
+7. `iter = get_point_iter(...)`.
+8. color = `get_palette_color(iter, color_shift)`.
+9. نوشتن رنگ در buffer.
+10. بعد از پایان loopها: `mlx_put_image_to_window`.
+
+## 44.5) مثال پایان‌به‌پایان (همه لایه‌ها با هم)
+
+سناریو: کاربر wheel up می‌زند.
+1. X11 event تولید می‌کند.
+2. MLX در `mlx_loop` event را می‌گیرد.
+3. `mouse_hook(button=4,x,y,&data)` صدا می‌شود.
+4. `zoom_at_point` state را تغییر می‌دهد.
+5. `render` دوباره کل frame را می‌سازد.
+6. `mlx_put_image_to_window` خروجی جدید را نشان می‌دهد.
+
+این یعنی interaction کامل:  
+`Event -> Update State -> Recompute Pixels -> Display`.
