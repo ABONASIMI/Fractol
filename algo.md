@@ -500,6 +500,96 @@ int	get_point_iter(t_data *data, double cx, double cy)
 
 ## 13) مسیر Runtime هنگام Eventها
 
+## 13.0) از کجا برنامه می‌فهمد کدام دکمه را زدی؟
+
+این همان سؤال اصلی evaluatorها هم هست.
+
+جریان واقعی از سیستم‌عامل تا کد شما:
+1. شما روی کیبورد یا ماوس عمل می‌کنی.
+2. در Linux/X11، event توسط X server تولید می‌شود.
+3. MiniLibX داخل `mlx_loop` این eventها را از صف event می‌خواند.
+4. چون در `main` callback ثبت کرده‌ای:
+   - `mlx_key_hook(data.win, key_hook, &data);`
+   - `mlx_mouse_hook(data.win, mouse_hook, &data);`
+   - `mlx_hook(data.win, 17, 0, close_hook, &data);`
+   پس MLX callback مناسب را صدا می‌زند.
+5. پارامترهای callback را MLX خودش پر می‌کند:
+   - `key_hook(int keycode, t_data *data)` -> `keycode` از event کیبورد می‌آید.
+   - `mouse_hook(int button, int x, int y, t_data *data)` -> `button/x/y` از event ماوس می‌آیند.
+6. `data` همان pointer است که موقع register کردن callback داده‌ای (`&data` در `main`).
+
+پس برنامه «حدس» نمی‌زند؛
+OS/X11 event می‌دهد، MLX dispatch می‌کند، callback شما با عدد دکمه/کلید صدا زده می‌شود.
+
+### keycodeها از کجا آمده‌اند؟
+
+در `fractol.h` این هدر را include کرده‌ای:
+
+```c
+#include <X11/keysym.h>
+```
+
+این هدر ثابت‌هایی مثل `XK_Left`, `XK_Right`, `XK_Escape`, `XK_c` را تعریف می‌کند.
+پس در `key_hook` وقتی می‌نویسی:
+
+```c
+if (keycode == XK_Left) ...
+```
+
+یعنی عدد دریافتی از X11 را با مقدار استاندارد کلید Left مقایسه می‌کنی.
+
+### buttonهای mouse از کجا آمده‌اند؟
+
+در Linux/X11 معمولاً:
+1. `button == 1` -> کلیک چپ
+2. `button == 2` -> کلیک وسط
+3. `button == 3` -> کلیک راست
+4. `button == 4` -> wheel up
+5. `button == 5` -> wheel down
+
+تو فقط `4` و `5` را برای zoom استفاده کرده‌ای.
+
+### event `17` چیست؟
+
+در:
+
+```c
+mlx_hook(data.win, 17, 0, close_hook, &data);
+```
+
+عدد `17` یعنی event بستن پنجره (روی Linux/X11).  
+وقتی روی `X` پنجره کلیک می‌کنی، MLX تابع `close_hook` را صدا می‌زند.
+
+### مثال واقعی 1 (کلید Left)
+
+فرض کاربر کلید Left را می‌زند:
+1. X11 یک key event می‌فرستد.
+2. MLX داخل loop این event را می‌گیرد.
+3. `key_hook(keycode, &data)` صدا زده می‌شود.
+4. `keycode == XK_Left` true می‌شود.
+5. `data->shift_x -= MOVE_STEP / data->zoom`
+6. `render(data)` اجرا می‌شود -> تصویر با view جدید redraw می‌شود.
+
+### مثال واقعی 2 (Wheel Up روی نقطه خاص)
+
+فرض کاربر wheel up را روی `(x=620, y=300)` می‌زند:
+1. MLX صدا می‌زند: `mouse_hook(4, 620, 300, &data)`
+2. چون `button == 4`:
+   - `zoom_at_point(data, 620, 300, ZOOM_FACTOR)` اجرا می‌شود.
+3. `zoom_at_point`:
+   - نقطه مختلط زیر ماوس را قبل zoom ذخیره می‌کند.
+   - zoom را افزایش می‌دهد.
+   - shift را تنظیم می‌کند تا همان نقطه زیر cursor بماند.
+4. `render(data)` -> تصویر جدید.
+
+### مثال واقعی 3 (بستن پنجره با X)
+
+1. کاربر روی X پنجره کلیک می‌کند.
+2. event شماره 17 تولید می‌شود.
+3. MLX -> `close_hook(&data)`.
+4. `destroy_data(data)` همه resourceها را آزاد می‌کند.
+5. `exit(0)` برنامه تمیز خارج می‌شود.
+
 ## 13.1) Mouse wheel (zoom)
 
 وقتی wheel بالا/پایین می‌چرخد:
@@ -732,13 +822,76 @@ static int	put_err(char *msg)
 
 ## 17.3) `parse_digits` در `utils.c`
 
-1. تا وقتی digit باشد loop ادامه می‌دهد.
-2. اگر `frac_mode = 0`:
-   - رقم جدید به بخش صحیح اضافه می‌شود.
-3. اگر `frac_mode = 1`:
-   - رقم جدید به بخش اعشاری اضافه می‌شود.
-   - `frac` هر بار 10 برابر کوچک‌تر می‌شود (`0.1`, `0.01`, ...).
-4. در هر گام `(*s)++` یعنی parser جلو می‌رود.
+این تابع یک parser کوچک است که «فقط رقم‌های پشت‌سرهم» را می‌خواند.
+
+ورودی‌ها:
+1. `char **s`:
+   - آدرس pointer فعلی روی رشته.
+   - تابع خودش pointer را جلو می‌برد.
+2. `double *res`:
+   - accumulator عدد نهایی.
+3. `double *frac`:
+   - فقط در حالت اعشاری استفاده می‌شود (`0.1`, `0.01`, `0.001`, ...).
+4. `int frac_mode`:
+   - `0` = parse بخش صحیح (integer part)
+   - `1` = parse بخش اعشاری (fractional part)
+
+منطق:
+1. تا وقتی `**s` یک digit باشد، loop ادامه دارد.
+2. اگر `frac_mode == 0`:
+   - `*res = *res * 10 + digit`
+   - یعنی مثل ماشین‌حساب بخش صحیح را می‌سازد.
+3. اگر `frac_mode == 1`:
+   - `*res += digit * (*frac)`
+   - بعد `*frac *= 0.1`
+   - یعنی هر رقم اعشاری وزن کوچک‌تری می‌گیرد.
+4. در هر دور `++(*s)` اجرا می‌شود تا parser روی کاراکتر بعدی برود.
+
+### مثال 1 (بخش صحیح)
+فرض:
+- رشته: `"123abc"`
+- `s` روی `'1'`
+- `res = 0`
+- `frac_mode = 0`
+
+مراحل:
+1. digit=`1` -> `res=1`
+2. digit=`2` -> `res=12`
+3. digit=`3` -> `res=123`
+4. `'a'` دیگر digit نیست -> loop stop
+
+خروجی:
+- `res = 123`
+- `s` حالا روی `'a'` ایستاده.
+
+### مثال 2 (بخش اعشاری)
+فرض:
+- رشته: `"156x"` (یعنی قسمت بعد از dot)
+- `s` روی `'1'`
+- `res = 0`
+- `frac = 0.1`
+- `frac_mode = 1`
+
+مراحل:
+1. digit=`1` -> `res += 1*0.1 = 0.1`, سپس `frac=0.01`
+2. digit=`5` -> `res += 5*0.01 = 0.05` => `res=0.15`, سپس `frac=0.001`
+3. digit=`6` -> `res += 6*0.001 = 0.006` => `res=0.156`
+4. `'x'` digit نیست -> stop
+
+خروجی:
+- `res = 0.156`
+- `s` روی `'x'`.
+
+### مثال 3 (اتصال به `ft_atof_strict`)
+برای ورودی `"-0.156"`:
+1. `ft_atof_strict` اول sign را می‌خواند (`-`).
+2. `parse_digits(..., frac_mode=0)` عدد `0` را می‌سازد.
+3. از `.` رد می‌شود.
+4. `parse_digits(..., frac_mode=1)` مقدار `0.156` را اضافه می‌کند.
+5. در آخر sign اعمال می‌شود -> `-0.156`.
+
+پس این تابع خودش کل عدد را parse نمی‌کند؛
+فقط «بخش digitهای فعلی» را می‌خواند و pointer را جلو می‌برد.
 
 ---
 
@@ -1394,3 +1547,162 @@ A:
 5. **Events/Cleanup**: چطور interaction و خروج تمیز انجام می‌شود.
 
 تو الآن ساختار فنی لازم را داری؛ با این سند می‌توانی دفاع را خیلی مطمئن انجام بدهی.
+
+---
+
+## 43) `main.c` کامل، تابع‌به‌تابع (one by one)
+
+این بخش دقیقاً برای همین سؤال است:  
+«هر تابع در `main.c` دقیقاً چه کار می‌کند و flow کامل چیست؟»
+
+## 43.1) `put_err(char *msg)`
+
+کد:
+
+```c
+static int	put_err(char *msg)
+{
+	int	len;
+	int	w;
+
+	len = 0;
+	while (msg[len])
+		++len;
+	w = write(2, msg, len);
+	if (w < 0)
+		return (1);
+	return (1);
+}
+```
+
+کارکرد:
+1. طول رشته error را دستی حساب می‌کند (`len`).
+2. با `write(2, ...)` پیام را روی `stderr` چاپ می‌کند.
+3. همیشه `1` برمی‌گرداند (یعنی error status).
+
+چرا `static`؟
+1. یعنی فقط داخل `main.c` قابل استفاده است.
+
+نکته دفاع:
+1. `if (w < 0) return (1);` عملاً رفتار خروجی را تغییر نمی‌دهد (چون در هر حالت `1` برمی‌گردانی)،
+   اما نشان می‌دهد خطای `write` هم نادیده گرفته نشده.
+
+مثال:
+1. اگر `mlx_init` fail شود:
+   - `put_err("Error: mlx_init failed\n")`
+   - پیام چاپ می‌شود
+   - کد خطا `1` برمی‌گردد.
+
+## 43.2) `init_data(t_data *data)`
+
+کد state اولیه را امن می‌کند:
+1. همه pointerها `NULL` می‌شوند (`mlx`, `win`, `img`, `addr`).
+2. metadata تصویر صفر می‌شود (`bits_per_pixel`, `line_length`, `endian`).
+3. view اولیه:
+   - `zoom = 1.0`
+   - `shift_x = 0.0`
+   - `shift_y = 0.0`
+4. Julia default constant:
+   - `julia_x = -0.744`
+   - `julia_y = 0.148`
+5. رنگ:
+   - `color_shift = 0`
+6. set پیش‌فرض:
+   - `MANDELBROT`
+
+چرا مهم است؟
+1. اگر setup نصفه‌نیمه fail کند، `destroy_data` فقط چیزهایی را که واقعاً ساخته شده‌اند آزاد می‌کند.
+2. از undefined behavior جلوگیری می‌شود.
+
+## 43.3) `destroy_data(t_data *data)`
+
+ترتیب cleanup:
+1. اگر `img` و `mlx` معتبرند -> `mlx_destroy_image`.
+2. اگر `win` و `mlx` معتبرند -> `mlx_destroy_window`.
+3. اگر `mlx` معتبر است:
+   - `mlx_destroy_display`
+   - `free(data->mlx)`
+
+چرا این ترتیب خوب است؟
+1. child resourceها (image/window) قبل از context کلی آزاد می‌شوند.
+2. شرط‌ها جلوی crash روی pointerهای `NULL` را می‌گیرند.
+
+کِی صدا زده می‌شود؟
+1. هنگام exit طبیعی (`ESC` یا close window).
+2. هنگام خطای setup در `setup_graphics`.
+
+## 43.4) `setup_graphics(t_data *data)`
+
+این تابع مرحله‌به‌مرحله گرافیک را آماده می‌کند:
+1. `mlx_init()` -> ساخت MLX context.
+2. `mlx_new_window(...)` -> ساخت window.
+3. `mlx_new_image(...)` -> ساخت image buffer.
+4. `mlx_get_data_addr(...)` -> گرفتن pointer raw pixel memory + metadata.
+
+در هر مرحله اگر fail شود:
+1. resourceهای قبلی cleanup می‌شوند (`destroy_data(data)`).
+2. پیام خطا چاپ می‌شود (`put_err(...)`).
+3. تابع `1` برمی‌گرداند.
+
+نکته syntax:
+1. این خط:
+   - `return (destroy_data(data), put_err("..."));`
+2. با comma operator کار می‌کند:
+   - اول cleanup
+   - بعد `put_err` اجرا
+   - مقدار نهایی return همان مقدار `put_err` است (یعنی `1`).
+
+## 43.5) `main(int ac, char **av)`
+
+Flow اصلی برنامه:
+1. `t_data data;` -> ساخت state روی stack.
+2. `init_data(&data);` -> مقداردهی اولیه امن.
+3. `parse_args(ac, av, &data)`:
+   - اگر fail -> `return 1`.
+4. `setup_graphics(&data)`:
+   - اگر fail -> `return 1`.
+5. `render(&data);` -> اولین frame.
+6. register callbackها:
+   - keyboard: `mlx_key_hook`
+   - mouse: `mlx_mouse_hook`
+   - close window event 17: `mlx_hook`
+7. `mlx_loop(data.mlx);`:
+   - ورود به loop بی‌نهایت event-driven.
+   - از اینجا به بعد OS event می‌دهد و callbackهای شما اجرا می‌شوند.
+8. `return 0;`:
+   - در حالت واقعی فقط وقتی loop تمام شود (عملاً بعد exit).
+
+## 43.6) سه سناریوی واقعی با همین `main.c`
+
+### سناریو A: اجرای صحیح
+فرمان:
+
+```bash
+./fractol julia -0.8 0.156
+```
+
+اتفاق:
+1. parse موفق.
+2. setup گرافیک موفق.
+3. render اولیه.
+4. loop شروع.
+5. کاربر event می‌دهد -> callback -> render مجدد.
+
+### سناریو B: ورودی غلط
+فرمان:
+
+```bash
+./fractol bad
+```
+
+اتفاق:
+1. `parse_args` fail.
+2. `main` مستقیم `return 1`.
+3. هیچ window ساخته نمی‌شود.
+
+### سناریو C: خطای گرافیک
+اتفاق:
+1. parse موفق.
+2. یکی از توابع MLX fail (مثلاً `mlx_new_image`).
+3. `setup_graphics` cleanup می‌کند + error چاپ می‌کند + `1` می‌دهد.
+4. `main` با `return 1` خارج می‌شود.
