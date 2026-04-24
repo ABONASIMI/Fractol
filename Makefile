@@ -4,16 +4,16 @@ SRCS = main.c events.c render.c utils.c
 OBJS = $(SRCS:.c=.o)
 
 CC = cc
-CFLAGS = -Wall -Wextra -Werror -O3
+CFLAGS = -Wall -Wextra -Werror -O3 -std=gnu89 -Wno-error=incompatible-pointer-types
 
 MLX_PATH = minilibx-linux
 MLX_LIB = $(MLX_PATH)/libmlx.a
-MLX_FLAGS = $(MLX_LIB) -lXext -lX11 -lm
+MLX_FLAGS = $(MLX_LIB) -lXext -lX11 -lm -lbsd
 
 all: $(NAME)
 
 $(MLX_LIB):
-	$(MAKE) -C $(MLX_PATH)
+	cd $(MLX_PATH) && ./configure
 
 $(NAME): $(MLX_LIB) $(OBJS)
 	$(CC) $(CFLAGS) $(OBJS) $(MLX_FLAGS) -o $(NAME)
@@ -24,7 +24,7 @@ $(NAME): $(MLX_LIB) $(OBJS)
 bonus: $(NAME)
 
 clean:
-	$(MAKE) -C $(MLX_PATH) clean
+	cd $(MLX_PATH) && ./configure clean
 	rm -f $(OBJS) *.o
 
 fclean: clean
